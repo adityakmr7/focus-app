@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, {Suspense, useEffect, useState} from 'react';
 import { enableScreens } from 'react-native-screens';
 import { NavigationContainer } from "@react-navigation/native";
 import { AppStackNavigation } from "./src/navigations";
 import "./global.css";
 import * as Notifications from "expo-notifications";
-import { Alert, Platform } from "react-native";
+import {ActivityIndicator, Alert, Platform} from "react-native";
 import { useSettingsStore } from "./src/store/settingsStore";
 import { useGoalsStore } from "./src/store/goalsStore";
 import { useStatisticsStore } from "./src/store/statisticsStore";
@@ -17,6 +17,12 @@ import { notificationService } from "./src/services/notificationService";
 import { errorHandler } from "./src/services/errorHandler";
 import { OnboardingFlow, shouldShowOnboarding } from "./src/components/OnboardingFlow";
 import * as SplashScreen from 'expo-splash-screen';
+import {useMigrations} from "drizzle-orm/op-sqlite/migrator";
+import { DB_NAME, db, expoDB} from "./src/db";
+import migrations from "./src/db/migrations/migrations";
+import {useDrizzleStudio} from "expo-drizzle-studio-plugin";
+import {SQLiteProvider} from "expo-sqlite";
+import { seedDatabase, isDatabaseSeeded } from "./src/db/seed";
 
 // Enable screens before any navigation components are rendered
 enableScreens();
@@ -42,7 +48,14 @@ const AppContent = () => {
 
         // Initialize database
         await initializeDatabase();
-        
+
+        // Check if database needs seeding (for development)
+        const isSeeded = await isDatabaseSeeded();
+        if (!isSeeded) {
+          console.log('🌱 Seeding database with dummy data...');
+          await seedDatabase();
+        }
+
         // Initialize all stores in parallel
         await Promise.all([
           initializeSettings(),
@@ -75,7 +88,7 @@ const AppContent = () => {
           }
 
           updateNotification(finalStatus);
-          
+
           if (finalStatus !== "granted") {
             Alert.alert(
               "Notifications Disabled",
@@ -83,24 +96,24 @@ const AppContent = () => {
             );
           }
         }
-        
-        console.log('App initialized successfully');
+
+        console.log('✅ App initialized successfully');
         setIsAppReady(true);
-        
+
         // Hide splash screen
         await SplashScreen.hideAsync();
       } catch (error) {
-        console.error('Failed to initialize app:', error);
+        console.error('❌ Failed to initialize app:', error);
         errorHandler.logError(error as Error, {
           context: 'App Initialization',
           severity: 'critical',
         });
-        
+
         Alert.alert(
           'Initialization Error',
           'Some features may not work properly. Please restart the app.'
         );
-        
+
         setIsAppReady(true);
         await SplashScreen.hideAsync();
       }
@@ -113,7 +126,7 @@ const AppContent = () => {
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data;
-      
+
       if (data?.type === 'session_complete' || data?.type === 'break_complete') {
         // Navigate to timer screen or show completion modal
         console.log('Timer notification received:', data);
@@ -150,13 +163,13 @@ const AppContent = () => {
   if (!isAppReady) {
     return null; // Splash screen is still showing
   }
-  
+
   return (
     <>
       <NavigationContainer>
         <AppStackNavigation />
       </NavigationContainer>
-      
+
       {/* Onboarding Flow */}
       {/* <OnboardingFlow
         visible={showOnboarding}
@@ -178,9 +191,28 @@ export default function App() {
     }),
   });
 
+  // Enable Drizzle Studio for development
+  useDrizzleStudio(expoDB);
+
+  const { success, error } = useMigrations(db, migrations);
+  
+  useEffect(() => {
+    if (success) {
+      console.log('✅ Database migrations successful');
+    } else if (error) {
+      console.error('❌ Database migrations failed:', error);
+    }
+  }, [success, error]);
+
   return (
-    <ThemeProvider>
-      <AppContent />
-    </ThemeProvider>
+    <Suspense fallback={<ActivityIndicator size={"large"}/>}>
+      <SQLiteProvider databaseName={DB_NAME} options={{
+        enableChangeListener: true
+      }} useSuspense={true}>
+        <ThemeProvider>
+          <AppContent />
+        </ThemeProvider>
+      </SQLiteProvider>
+    </Suspense>
   );
 }
