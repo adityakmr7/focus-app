@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "Flow Focus",
-    "slug": "flow-focus",
+    "name": "Focus 25",
+    "slug": "focus-25",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/icon_ios.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -16,6 +16,7 @@
       "**/*"
     ],
     "ios": {
+      "icon": "./assets/icon_ios.png",
       "supportsTablet": true,
       "infoPlist": {
         "UIBackgroundModes": [
@@ -26,9 +27,10 @@
         "NSMicrophoneUsageDescription": "This app uses the microphone for focus session audio feedback.",
         "NSUserNotificationsUsageDescription": "This app sends notifications to remind you about focus sessions and breaks."
       },
-      "bundleIdentifier": "com.flowfocus.app"
+      "bundleIdentifier": "com.focus25.app"
     },
     "android": {
+      "icon": "./assets/icon_android.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#48BB78"
@@ -40,7 +42,7 @@
         "android.permission.VIBRATE",
         "android.permission.USE_FULL_SCREEN_INTENT"
       ],
-      "package": "com.flowfocus.app"
+      "package": "com.focus25.app"
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -68,7 +70,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "your-project-id-here"
+        "projectId": "com.focus25.app"
       }
     }
   }

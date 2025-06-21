@@ -1,24 +1,26 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, {useEffect, useRef, useState} from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Dimensions,
-  TouchableOpacity,
-  SafeAreaView,
   Animated,
+  Dimensions,
   Platform,
   RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import StatisticsChart from "../components/StatisticsChart";
-import { useStatisticsStore } from "../store/statisticsStore";
-import { usePomodoroStore } from '../store/pomodoroStore';
-import { useGoalsStore } from '../store/goalsStore';
-import { FlowMetrics } from '../components/FlowMetrics';
-import { GoalsModal } from '../components/GoalsModal';
-import { useTheme } from '../providers/ThemeProvider';
+import {useStatisticsStore} from "../store/statisticsStore";
+import {usePomodoroStore} from '../store/pomodoroStore';
+import {useGoalsStore} from '../store/goalsStore';
+import {FlowMetrics} from '../components/FlowMetrics';
+import {GoalsModal} from '../components/GoalsModal';
+import {useTheme} from '../providers/ThemeProvider';
+import {useAuthContext} from '../components/AuthProvider';
+import {hybridDatabaseService} from '../services/hybridDatabase';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -208,6 +210,7 @@ const ActionButton: React.FC<{
 
 const StatisticsScreen: React.FC<StatisticsScreenProps> = ({ navigation }) => {
   const { theme } = useTheme();
+  const { user, isAuthenticated } = useAuthContext();
   const {
     selectedPeriod,
     currentDate,
@@ -218,15 +221,30 @@ const StatisticsScreen: React.FC<StatisticsScreenProps> = ({ navigation }) => {
     interruptions,
     isLoading,
     syncWithDatabase,
+    initializeStore: initializeStatistics,
   } = useStatisticsStore();
 
-  const { flowMetrics } = usePomodoroStore();
-  const { goals, getActiveGoals, updateGoalsFromStats } = useGoalsStore();
+  const {
+    flowMetrics,
+    initializeStore: initializePomodoro
+  } = usePomodoroStore();
+
+  const {
+    goals,
+    getActiveGoals,
+    updateGoalsFromStats,
+    initializeStore: initializeGoals
+  } = useGoalsStore();
 
   const [showGoalsModal, setShowGoalsModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdateTime, setLastUpdateTime] = useState(new Date());
   const headerAnimatedValue = useRef(new Animated.Value(0)).current;
+
+  // Update hybrid database service with auth state
+  useEffect(() => {
+    hybridDatabaseService.setAuthState(isAuthenticated, user?.id);
+  }, [isAuthenticated, user?.id]);
 
   useEffect(() => {
     Animated.timing(headerAnimatedValue, {
@@ -234,6 +252,23 @@ const StatisticsScreen: React.FC<StatisticsScreenProps> = ({ navigation }) => {
       duration: 1000,
       useNativeDriver: true,
     }).start();
+  }, []);
+
+  // Initialize stores when component mounts
+  useEffect(() => {
+    const initializeStores = async () => {
+      try {
+        await Promise.all([
+          initializeStatistics(),
+          initializePomodoro(),
+          initializeGoals(),
+        ]);
+      } catch (error) {
+        console.error('Failed to initialize stores:', error);
+      }
+    };
+
+    initializeStores();
   }, []);
 
   // Auto-refresh data every 30 seconds
@@ -270,6 +305,17 @@ const StatisticsScreen: React.FC<StatisticsScreenProps> = ({ navigation }) => {
       console.error('Failed to refresh data:', error);
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleSyncData = async () => {
+    if (!isAuthenticated) return;
+
+    try {
+      await hybridDatabaseService.syncToSupabase();
+      setLastUpdateTime(new Date());
+    } catch (error) {
+      console.error('Failed to sync data:', error);
     }
   };
 
@@ -408,6 +454,18 @@ const StatisticsScreen: React.FC<StatisticsScreenProps> = ({ navigation }) => {
             <Text style={[styles.lastUpdate, { color: theme.textSecondary }]}>
               Updated {formatLastUpdate(lastUpdateTime)}
             </Text>
+            {isAuthenticated && (
+              <TouchableOpacity onPress={handleSyncData} style={styles.syncStatus}>
+                <Icon name="cloud-done" size={16} color="#10B981" />
+                <Text style={[styles.syncText, { color: '#10B981' }]}>Synced</Text>
+              </TouchableOpacity>
+            )}
+            {!isAuthenticated && (
+              <View style={styles.syncStatus}>
+                <Icon name="cloud-offline" size={16} color="#F59E0B" />
+                <Text style={[styles.syncText, { color: '#F59E0B' }]}>Local Only</Text>
+              </View>
+            )}
             <View style={styles.todayStats}>
               <Text style={[styles.todayValue, { color: theme.text }]}>
                 {flows.completed}
@@ -543,13 +601,7 @@ const StatisticsScreen: React.FC<StatisticsScreenProps> = ({ navigation }) => {
 
         {/* Action Buttons */}
         <View style={styles.actionButtonsContainer}>
-          <ActionButton
-            icon="analytics"
-            label="Flow Analytics"
-            onPress={() => navigation?.navigate("FlowAnalytics")}
-            gradient={['#f093fb', '#f5576c']}
-            delay={300}
-          />
+
           <ActionButton
             icon="flag"
             label="Manage Goals"
@@ -589,57 +641,57 @@ const StatisticsScreen: React.FC<StatisticsScreenProps> = ({ navigation }) => {
           <FlowMetrics showDetailed={false} />
         </View>
 
-        {/* Quick Insights */}
-        <View style={styles.insightsSection}>
-          <Animated.View
-            style={[
-              styles.sectionHeader,
-              {
-                opacity: headerOpacity,
-                transform: [{ translateY: headerTranslateY }],
-              },
-            ]}
-          >
-            <View style={styles.sectionTitleContainer}>
-              <Icon name="lightbulb" size={24} color="#FFD93D" />
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                Quick Insights
-              </Text>
-            </View>
-          </Animated.View>
+        {/*/!* Quick Insights *!/*/}
+        {/*<View style={styles.insightsSection}>*/}
+        {/*  <Animated.View*/}
+        {/*    style={[*/}
+        {/*      styles.sectionHeader,*/}
+        {/*      {*/}
+        {/*        opacity: headerOpacity,*/}
+        {/*        transform: [{ translateY: headerTranslateY }],*/}
+        {/*      },*/}
+        {/*    ]}*/}
+        {/*  >*/}
+        {/*    <View style={styles.sectionTitleContainer}>*/}
+        {/*      <Icon name="lightbulb" size={24} color="#FFD93D" />*/}
+        {/*      <Text style={[styles.sectionTitle, { color: theme.text }]}>*/}
+        {/*        Quick Insights*/}
+        {/*      </Text>*/}
+        {/*    </View>*/}
+        {/*  </Animated.View>*/}
 
-          <View style={styles.insightsGrid}>
-            <View style={[styles.insightCard, { backgroundColor: 'rgba(255, 255, 255, 0.2)' }]}>
-              <Icon name="trending-up" size={20} color="#10B981" />
-              <Text style={[styles.insightTitle, { color: theme.text }]}>
-                Best Time
-              </Text>
-              <Text style={[styles.insightValue, { color: theme.textSecondary }]}>
-                {flows.completed > 0 ? '2:00 PM' : 'Not enough data'}
-              </Text>
-            </View>
+        {/*  <View style={styles.insightsGrid}>*/}
+        {/*    <View style={[styles.insightCard, { backgroundColor: 'rgba(255, 255, 255, 0.2)' }]}>*/}
+        {/*      <Icon name="trending-up" size={20} color="#10B981" />*/}
+        {/*      <Text style={[styles.insightTitle, { color: theme.text }]}>*/}
+        {/*        Best Time*/}
+        {/*      </Text>*/}
+        {/*      <Text style={[styles.insightValue, { color: theme.textSecondary }]}>*/}
+        {/*        {flows.completed > 0 ? '2:00 PM' : 'Not enough data'}*/}
+        {/*      </Text>*/}
+        {/*    </View>*/}
 
-            <View style={[styles.insightCard, { backgroundColor: 'rgba(255, 255, 255, 0.2)' }]}>
-              <Icon name="speed" size={20} color="#4ECDC4" />
-              <Text style={[styles.insightTitle, { color: theme.text }]}>
-                Streak
-              </Text>
-              <Text style={[styles.insightValue, { color: theme.textSecondary }]}>
-                {flowMetrics.currentStreak} days
-              </Text>
-            </View>
+        {/*    <View style={[styles.insightCard, { backgroundColor: 'rgba(255, 255, 255, 0.2)' }]}>*/}
+        {/*      <Icon name="speed" size={20} color="#4ECDC4" />*/}
+        {/*      <Text style={[styles.insightTitle, { color: theme.text }]}>*/}
+        {/*        Streak*/}
+        {/*      </Text>*/}
+        {/*      <Text style={[styles.insightValue, { color: theme.textSecondary }]}>*/}
+        {/*        {flowMetrics.currentStreak} days*/}
+        {/*      </Text>*/}
+        {/*    </View>*/}
 
-            <View style={[styles.insightCard, { backgroundColor: 'rgba(255, 255, 255, 0.2)' }]}>
-              <Icon name="emoji-events" size={20} color="#FFD93D" />
-              <Text style={[styles.insightTitle, { color: theme.text }]}>
-                This Week
-              </Text>
-              <Text style={[styles.insightValue, { color: theme.textSecondary }]}>
-                {flows.completed * 7} sessions
-              </Text>
-            </View>
-          </View>
-        </View>
+        {/*    <View style={[styles.insightCard, { backgroundColor: 'rgba(255, 255, 255, 0.2)' }]}>*/}
+        {/*      <Icon name="emoji-events" size={20} color="#FFD93D" />*/}
+        {/*      <Text style={[styles.insightTitle, { color: theme.text }]}>*/}
+        {/*        This Week*/}
+        {/*      </Text>*/}
+        {/*      <Text style={[styles.insightValue, { color: theme.textSecondary }]}>*/}
+        {/*        {flows.completed * 7} sessions*/}
+        {/*      </Text>*/}
+        {/*    </View>*/}
+        {/*  </View>*/}
+        {/*</View>*/}
 
         {/* Bottom Spacing */}
         <View style={styles.bottomSpacing} />
@@ -691,6 +743,16 @@ const styles = StyleSheet.create({
   lastUpdate: {
     fontSize: 12,
     marginBottom: 4,
+  },
+  syncStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 8,
+  },
+  syncText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   todayStats: {
     alignItems: 'center',
@@ -830,6 +892,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 16,
     borderRadius: 16,
+    height:80,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -953,7 +1016,7 @@ const styles = StyleSheet.create({
         shadowRadius: 12,
       },
       android: {
-        elevation: 6,
+        elevation: 1,
       },
     }),
   },
