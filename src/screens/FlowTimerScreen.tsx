@@ -25,9 +25,7 @@ import Animated, {
     withSequence,
     withTiming,
 } from 'react-native-reanimated';
-import { useTheme } from '../providers/ThemeProvider';
-import { useAuthContext } from '../components/AuthProvider';
-import { hybridDatabaseService } from '../data/hybridDatabase';
+import { useThemeStore } from '../store/themeStore';
 import { backgroundTimerService } from '../services/backgroundTimer';
 import { notificationService } from '../services/notificationService';
 import { errorHandler } from '../services/errorHandler';
@@ -38,6 +36,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Header from '../components/FlowTimerScreen/Header';
 import QuickActionsPanel from '../components/FlowTimerScreen/QuickActionPanel';
 import TimerContainer from '../components/FlowTimerScreen/TimerContainer';
+import { useTheme } from '../hooks/useTheme';
 
 const MUSIC_SETTINGS_KEY = 'music_settings';
 const TIMER_STATE_KEY = 'timer_state';
@@ -80,9 +79,8 @@ const defaultSettings: MusicSettings = {
 // Main Component
 const FlowTimerScreen: React.FC<FlowTimerScreenProps> = ({ navigation }) => {
     // Hooks and State
-    const { user, isAuthenticated } = useAuthContext();
-    const { theme } = useTheme();
-
+    const { mode, getCurrentTheme } = useThemeStore();
+    const { theme, isDark } = useTheme();
     // Audio and Music State
     const [selectedTrack, setSelectedTrack] = useState<string | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
@@ -110,8 +108,16 @@ const FlowTimerScreen: React.FC<FlowTimerScreenProps> = ({ navigation }) => {
         return musicTracks.find((t) => t.id === selectedTrack)?.source || null;
     }, [selectedTrack]);
 
-    const { player, isReady, status, uri, isDownloading, downloadError, downloadProgress, usingFallback } =
-        useCachedAudio(currentTrackUrl);
+    const {
+        player,
+        isReady,
+        status,
+        uri,
+        isDownloading,
+        downloadError,
+        downloadProgress,
+        usingFallback,
+    } = useCachedAudio(currentTrackUrl);
 
     const alertPlayer = useAudioPlayer(audioSource);
 
@@ -230,7 +236,10 @@ const FlowTimerScreen: React.FC<FlowTimerScreenProps> = ({ navigation }) => {
             }
         } catch (error) {
             console.error('Failed to toggle playback:', error);
-            Alert.alert('Playback Error', 'Failed to control playback. The track may still be loading.');
+            Alert.alert(
+                'Playback Error',
+                'Failed to control playback. The track may still be loading.',
+            );
         }
     }, [player, isReady, uri, isDownloading, downloadProgress, usingFallback, isPlaying]);
 
@@ -410,23 +419,6 @@ const FlowTimerScreen: React.FC<FlowTimerScreenProps> = ({ navigation }) => {
         );
     }, [containerAnimation]);
 
-    // Sync handler
-    const syncData = useCallback(async () => {
-        if (!isAuthenticated) return;
-
-        setTimerState((prev) => ({ ...prev, syncStatus: 'syncing' }));
-        try {
-            await hybridDatabaseService.syncToSupabase();
-            setTimerState((prev) => ({ ...prev, syncStatus: 'idle' }));
-        } catch (error) {
-            console.error('Sync failed:', error);
-            setTimerState((prev) => ({ ...prev, syncStatus: 'error' }));
-            setTimeout(() => {
-                setTimerState((prev) => ({ ...prev, syncStatus: 'idle' }));
-            }, 3000);
-        }
-    }, [isAuthenticated]);
-
     // Initialization
     useEffect(() => {
         const initializeApp = async () => {
@@ -436,7 +428,7 @@ const FlowTimerScreen: React.FC<FlowTimerScreenProps> = ({ navigation }) => {
 
                 // Initialize stores
                 await Promise.all([initializeSettings(), initializePomodoro(), loadSettings()]);
-                
+
                 // Sync timer with loaded settings
                 updateTimerFromSettings();
                 console.log('🔄 Timer synchronized with settings');
@@ -460,15 +452,6 @@ const FlowTimerScreen: React.FC<FlowTimerScreenProps> = ({ navigation }) => {
 
         initializeApp();
     }, [initializeSettings, initializePomodoro, loadSettings, containerAnimation]);
-
-    // Auth state updates
-    useEffect(() => {
-        try {
-            hybridDatabaseService.setAuthState(isAuthenticated, user?.id);
-        } catch (error) {
-            console.error('Failed to update auth state:', error);
-        }
-    }, [isAuthenticated, user?.id]);
 
     // Quick actions animation
     useEffect(() => {
@@ -497,6 +480,7 @@ const FlowTimerScreen: React.FC<FlowTimerScreenProps> = ({ navigation }) => {
             setAchievements(newAchievements);
             setShowAchievements(true);
 
+            console.log('calling new achievement notification');
             newAchievements.forEach((achievement) => {
                 notificationService.scheduleGoalAchievement(achievement);
             });
@@ -667,9 +651,6 @@ const FlowTimerScreen: React.FC<FlowTimerScreenProps> = ({ navigation }) => {
             if (nextAppState === 'background') {
                 // App going to background
                 saveTimerState();
-                if (isAuthenticated) {
-                    syncData();
-                }
             } else if (nextAppState === 'active') {
                 // App coming to foreground
                 // Sync with background timer if supported
@@ -681,7 +662,7 @@ const FlowTimerScreen: React.FC<FlowTimerScreenProps> = ({ navigation }) => {
 
         const subscription = AppState.addEventListener('change', handleAppStateChange);
         return () => subscription?.remove();
-    }, [saveTimerState, isAuthenticated, syncData, isConnectedToBackground]);
+    }, [saveTimerState, isConnectedToBackground]);
 
     // Volume animation
     useEffect(() => {
@@ -729,7 +710,7 @@ const FlowTimerScreen: React.FC<FlowTimerScreenProps> = ({ navigation }) => {
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
             <StatusBar
-                barStyle={theme.mode === 'dark' ? 'light-content' : 'dark-content'}
+                barStyle={isDark ? 'light-content' : 'dark-content'}
                 backgroundColor="transparent"
                 translucent
             />
@@ -775,7 +756,7 @@ const FlowTimerScreen: React.FC<FlowTimerScreenProps> = ({ navigation }) => {
                         showBreathingAnimation={showBreathingAnimation}
                         pulseAnimation={pulseAnimation}
                         onToggleTimer={handleToggleTimer}
-                        isAuthenticated={isAuthenticated}
+                        isAuthenticated={false} // Placeholder, replace with actual auth state
                         isPlaying={isPlaying}
                         handlePlayPause={handlePlayPause}
                         handleVolumeChange={handleVolumeChange}
